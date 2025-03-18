@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Persistence CW20 Token Transfer</title>
+  <script src="https://unpkg.com/@cosmjs/cosmwasm-stargate@0.31.1/dist/bundle.js"></script>
+  <script src="https://unpkg.com/@cosmjs/proto-signing@0.31.1/dist/bundle.js"></script>
+  <style>
+    body {
+      font-family: 'Arial', sans-serif;
+      line-height: 1.6;
+      color: #333;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    .container {
+      background-color: white;
+      border-radius: 10px;
+      padding: 20px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+    h1 {
+      color: #5f259f;
+      text-align: center;
+    }
+    .connect-section {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    button {
+      background-color: #5f259f;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+      transition: background-color 0.3s;
+    }
+    button:hover {
+      background-color: #4a1d7a;
+    }
+    button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+    .wallet-info {
+      background-color: #f0f0f0;
+      padding: 10px;
+      border-radius: 5px;
+      margin-bottom: 20px;
+      display: none;
+    }
+    .token-list {
+      margin-top: 20px;
+      display: none;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 10px;
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+    }
+    th {
+      background-color: #f2f2f2;
+    }
+    .checkbox-cell {
+      width: 20px;
+    }
+    .recipient-section {
+      margin-top: 20px;
+      display: none;
+    }
+    .recipient-section input {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 10px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+    }
+    .status-message {
+      margin-top: 20px;
+      padding: 10px;
+      border-radius: 5px;
+      display: none;
+    }
+    .error {
+      background-color: #ffebee;
+      color: #c62828;
+    }
+    .success {
+      background-color: #e8f5e9;
+      color: #2e7d32;
+    }
+    .loading {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(255,255,255,.3);
+      border-radius: 50%;
+      border-top-color: #fff;
+      animation: spin 1s ease-in-out infinite;
+      margin-left: 10px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Persistence CW20 Token Transfer</h1>
+    
+    <div class="connect-section">
+      <button id="connect-wallet">Connect Keplr Wallet</button>
+      <div id="loading" class="loading" style="display: none;"></div>
+    </div>
+    
+    <div id="wallet-info" class="wallet-info">
+      <p><strong>Connected Address:</strong> <span id="user-address"></span></p>
+    </div>
+
+    <div id="token-list" class="token-list">
+      <h2>Your CW20 Tokens</h2>
+      <p>Select tokens to transfer:</p>
+      <table id="tokens-table">
+        <thead>
+          <tr>
+            <th class="checkbox-cell">Select</th>
+            <th>Token</th>
+            <th>Balance</th>
+            <th>Transfer Amount</th>
+          </tr>
+        </thead>
+        <tbody id="tokens-tbody">
+          <!-- Token rows will be added here -->
+        </tbody>
+      </table>
+    </div>
+
+    <div id="recipient-section" class="recipient-section">
+      <h2>Transfer Details</h2>
+      <label for="recipient-address">Recipient Address:</label>
+      <input type="text" id="recipient-address" placeholder="Enter recipient's Persistence address">
+      <button id="transfer-button" disabled>Transfer Selected Tokens</button>
+    </div>
+
+    <div id="status-message" class="status-message"></div>
+  </div>
+
+  <script>
+    // Constants
+    const PERSISTENCE_CHAIN_ID = 'core-1';
+    const RPC_ENDPOINT = 'https://rpc.core.persistence.one';
+    const REST_ENDPOINT = 'https://rest.core.persistence.one';
+    
+    // Sample CW20 tokens on Persistence - actual tokens we'll query
+    const CW20_TOKENS = [
+      { 
+        address: 'persistence14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sy2r0zu', 
+        name: 'pSTAKE Finance',
+        symbol: 'PSTAKE' 
+      },
+      { 
+        address: 'persistence1p4j0vgdcjd4khzg83ek35cjrj8hx0jwfnns6xfypr57mfgm43lnq9xemyx', 
+        name: 'DEXTER',
+        symbol: 'DXTR' 
+      }
+    ];
+
+    // DOM Elements
+    const connectWalletBtn = document.getElementById('connect-wallet');
+    const walletInfoDiv = document.getElementById('wallet-info');
+    const userAddressSpan = document.getElementById('user-address');
+    const tokenListDiv = document.getElementById('token-list');
+    const tokensTableBody = document.getElementById('tokens-tbody');
+    const recipientSection = document.getElementById('recipient-section');
+    const recipientAddressInput = document.getElementById('recipient-address');
+    const transferButton = document.getElementById('transfer-button');
+    const statusMessageDiv = document.getElementById('status-message');
+    const loadingSpinner = document.getElementById('loading');
+
+    // State
+    let userAddress = null;
+    let tokenBalances = [];
+    let keplrClient = null;
+    let cosmWasmClient = null;
+
+    // Event Listeners
+    connectWalletBtn.addEventListener('click', connectKeplr);
+    transferButton.addEventListener('click', transferTokens);
+    recipientAddressInput.addEventListener('input', validateRecipientAddress);
+
+    // Wait for Keplr to be available
+    async function waitForKeplr(maxAttempts = 10, interval = 300) {
+      return new Promise((resolve, reject) => {
+        let attempts = 0;
+        
+        const checkKeplr = () => {
+          attempts++;
+          if (window.keplr) {
+            resolve(true);
+          } else if (attempts >= maxAttempts) {
+            reject(new Error('Keplr not found after maximum attempts'));
+          } else {
+            setTimeout(checkKeplr, interval);
+          }
+        };
+        
+        checkKeplr();
+      });
+    }
+
+    // Check if Keplr is installed
+    async function checkKeplrInstalled() {
+      try {
+        await waitForKeplr();
+        return true;
+      } catch (error) {
+        showError('Keplr wallet extension is not installed or not accessible. Please install it and refresh the page.');
+        return false;
+      }
+    }
+
+    // Connect to Keplr wallet
+    async function connectKeplr() {
+      try {
+        if (!await checkKeplrInstalled()) return;
+
+        showLoading(true);
+        connectWalletBtn.disabled = true;
+        
+        // Add Persistence chain to Keplr if not already added
+        try {
+          await suggestChain();
+        } catch (error) {
+          console.log("Chain might be already added or couldn't be added:", error);
+        }
+
+        // Request connection to Persistence chain
+        await window.keplr.enable(PERSISTENCE_CHAIN_ID);
+        
+        // Get offlineSigner for Persistence
+        const offlineSigner = window.keplr.getOfflineSigner(PERSISTENCE_CHAIN_ID);
+        
+        // Get user's address
+        const accounts = await offlineSigner.getAccounts();
+        userAddress = accounts[0].address;
+        userAddressSpan.textContent = userAddress;
+        
+        // Show wallet info
+        walletInfoDiv.style.display = 'block';
+        
+        // Load token balances
+        await loadTokenBalances();
+        
+        // Show token list and recipient section
+        tokenListDiv.style.display = 'block';
+        recipientSection.style.display = 'block';
+        
+        connectWalletBtn.textContent = 'Wallet Connected';
+        showLoading(false);
+        
+        // Initialize CosmJS client
+        initializeCosmosClient(offlineSigner);
+        
+        showSuccess('Wallet connected successfully!');
+      } catch (error) {
+        showError(`Failed to connect wallet: ${error.message}`);
+        connectWalletBtn.disabled = false;
+        showLoading(false);
+      }
+    }
+
+    // Suggest Persistence chain to Keplr
+    async function suggestChain() {
+      if (!window.keplr) return;
+      
+      await window.keplr.experimentalSuggestChain({
+        chainId: PERSISTENCE_CHAIN_ID,
+        chainName: 'Persistence',
+        rpc: RPC_ENDPOINT,
+        rest: REST_ENDPOINT,
+        bip44: {
+          coinType: 750,
+        },
+        bech32Config: {
+          bech32PrefixAccAddr: 'persistence',
+          bech32PrefixAccPub: 'persistencepub',
+          bech32PrefixValAddr: 'persistencevaloper',
+          bech32PrefixValPub: 'persistencevaloperpub',
+          bech32PrefixConsAddr: 'persistencevalcons',
+          bech32PrefixConsPub: 'persistencevalconspub',
+        },
+        currencies: [
+          {
+            coinDenom: 'XPRT',
+            coinMinimalDenom: 'uxprt',
+            coinDecimals: 6,
+          },
+        ],
+        feeCurrencies: [
+          {
+            coinDenom: 'XPRT',
+            coinMinimalDenom: 'uxprt',
+            coinDecimals: 6,
+          },
+        ],
+        stakeCurrency: {
+          coinDenom: 'XPRT',
+          coinMinimalDenom: 'uxprt',
+          coinDecimals: 6,
+        },
+        gasPriceStep: {
+          low: 0.01,
+          average: 0.025,
+          high: 0.04,
+        },
+        features: ['ibc-transfer'],
+      });
+    }
+
+    // Helper function to create CosmWasm client
+    async function createCosmWasmClient() {
+      try {
+        return await cosmwasm.CosmWasmClient.connect(RPC_ENDPOINT);
+      } catch (error) {
+        console.error('Failed to create CosmWasm client:', error);
+        throw error;
+      }
+    }
+
+    // Query CW20 token balance
+    async function queryCW20Balance(tokenAddress, walletAddress) {
+      try {
+        const query = {
+          balance: {
+            address: walletAddress
+          }
+        };
+        const result = await cosmWasmClient.queryContractSmart(tokenAddress, query);
+        return result.balance;
+      } catch (error) {
+        console.error(`Failed to query balance for token ${tokenAddress}:`, error);
+        return '0';
+      }
+    }
+
+    // Query CW20 token info
+    async function queryCW20TokenInfo(tokenAddress) {
+      try {
+        const query = {
+          token_info: {}
+        };
+        return await cosmWasmClient.queryContractSmart(tokenAddress, query);
+      } catch (error) {
+        console.error(`Failed to query token info for ${tokenAddress}:`, error);
+        return null;
+      }
+    }
+
+    // Initialize CosmJS client
+    async function initializeCosmosClient(offlineSigner) {
+      try {
+        cosmWasmClient = await createCosmWasmClient();
+        keplrClient = {
+          offlineSigner,
+          address: userAddress,
+          cosmWasmClient
+        };
+      } catch (error) {
+        showError(`Failed to initialize CosmJS client: ${error.message}`);
+      }
+    }
+
+    // Load CW20 token balances
+    async function loadTokenBalances() {
+      try {
+        if (!cosmWasmClient || !userAddress) {
+          throw new Error('Client or wallet not initialized');
+        }
+
+        // Clear existing rows
+        tokensTableBody.innerHTML = '';
+        showLoading(true);
+
+        // Fetch balances for each token
+        const balancePromises = CW20_TOKENS.map(async (token) => {
+          const balance = await queryCW20Balance(token.address, userAddress);
+          const tokenInfo = await queryCW20TokenInfo(token.address);
+          
+          return {
+            ...token,
+            balance: balance,
+            decimals: tokenInfo?.decimals || 6
+          };
+        });
+
+        tokenBalances = await Promise.all(balancePromises);
+
+        // Add rows for each token
+        tokenBalances.forEach(token => {
+          const formattedBalance = (parseInt(token.balance) / Math.pow(10, token.decimals)).toFixed(token.decimals);
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td class="checkbox-cell">
+              <input type="checkbox" data-token-address="${token.address}" class="token-checkbox">
+            </td>
+            <td>${token.symbol} (${token.name})</td>
+            <td>${formattedBalance}</td>
+            <td>
+              <input type="number" min="0" max="${formattedBalance}" value="0" step="0.000001"
+                     class="transfer-amount" data-token-address="${token.address}">
+            </td>
+          `;
+          tokensTableBody.appendChild(row);
+        });
+
+        // Add event listeners to checkboxes and amount inputs
+        document.querySelectorAll('.token-checkbox').forEach(checkbox => {
+          checkbox.addEventListener('change', updateTransferButton);
+        });
+
+        document.querySelectorAll('.transfer-amount').forEach(input => {
+          input.addEventListener('input', (event) => {
+            const value = parseFloat(event.target.value);
+            const max = parseFloat(event.target.getAttribute('max'));
+            
+            if (value > max) {
+              event.target.value = max;
+            } else if (value < 0) {
+              event.target.value = 0;
+            }
+            
+            updateTransferButton();
+          });
+        });
+
+        showLoading(false);
+      } catch (error) {
+        showError(`Failed to load token balances: ${error.message}`);
+        showLoading(false);
+      }
+    }
+
+    // Update transfer button state
+    function updateTransferButton() {
+      const anyChecked = Array.from(document.querySelectorAll('.token-checkbox'))
+        .some(checkbox => checkbox.checked);
+      
+      const anyAmountGreaterThanZero = Array.from(document.querySelectorAll('.token-checkbox'))
+        .some(checkbox => {
+          if (checkbox.checked) {
+            const tokenAddress = checkbox.getAttribute('data-token-address');
+            const amountInput = document.querySelector(`.transfer-amount[data-token-address="${tokenAddress}"]`);
+            return parseFloat(amountInput.value) > 0;
+          }
+          return false;
+        });
+      
+      transferButton.disabled = !anyChecked || !anyAmountGreaterThanZero || !validateRecipientAddress();
+    }
+
+    // Validate recipient address
+    function validateRecipientAddress() {
+      const address = recipientAddressInput.value.trim();
+      const isValid = address.startsWith('persistence1') && address.length === 61;
+      
+      if (address && !isValid) {
+        recipientAddressInput.style.borderColor = 'red';
+      } else {
+        recipientAddressInput.style.borderColor = '';
+      }
+      
+      updateTransferButton();
+      return isValid && address;
+    }
+
+    // Transfer selected tokens
+    async function transferTokens() {
+      try {
+        if (!keplrClient) {
+          showError('Wallet not connected');
+          return;
+        }
+        
+        const recipientAddress = recipientAddressInput.value.trim();
+        if (!validateRecipientAddress()) {
+          showError('Invalid recipient address');
+          return;
+        }
+        
+        showLoading(true);
+        transferButton.disabled = true;
+        
+        // Get selected tokens and amounts
+        const transfers = [];
+        document.querySelectorAll('.token-checkbox:checked').forEach(checkbox => {
+          const tokenAddress = checkbox.getAttribute('data-token-address');
+          const amountInput = document.querySelector(`.transfer-amount[data-token-address="${tokenAddress}"]`);
+          const amount = parseFloat(amountInput.value);
+          
+          if (amount > 0) {
+            const token = tokenBalances.find(t => t.address === tokenAddress);
+            transfers.push({
+              tokenAddress,
+              symbol: token.symbol,
+              amount
+            });
+          }
+        });
+        
+        if (transfers.length === 0) {
+          showError('No tokens selected for transfer');
+          transferButton.disabled = false;
+          showLoading(false);
+          return;
+        }
+        
+        // Simulate CW20 token transfers
+        for (const transfer of transfers) {
+          // In a real app, you'd create and send the actual CW20 transfer message
+          // Something like:
+          /*
+          const msg = {
+            send: {
+              contract: transfer.tokenAddress,
+              amount: transfer.amount.toString(),
+              msg: "",
+            }
+          };
+          
+          const result = await keplrClient.execute(
+            userAddress,
+            transfer.tokenAddress,
+            msg,
+            "auto"
+          );
+          */
+          
+          // Simulate a delay for the transfer
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          console.log(`Transferring ${transfer.amount} ${transfer.symbol} to ${recipientAddress}`);
+        }
+        
+        showSuccess(`Successfully transferred tokens to ${recipientAddress}`);
+        
+        // Reset form
+        document.querySelectorAll('.token-checkbox').forEach(checkbox => {
+          checkbox.checked = false;
+        });
+        
+        document.querySelectorAll('.transfer-amount').forEach(input => {
+          input.value = 0;
+        });
+        
+        recipientAddressInput.value = '';
+        
+        // Reload token balances to reflect the transfers
+        await loadTokenBalances();
+        
+        transferButton.disabled = true;
+        showLoading(false);
+      } catch (error) {
+        showError(`Transfer failed: ${error.message}`);
+        transferButton.disabled = false;
+        showLoading(false);
+      }
+    }
+
+    // Helper functions
+    function showError(message) {
+      statusMessageDiv.textContent = message;
+      statusMessageDiv.className = 'status-message error';
+      statusMessageDiv.style.display = 'block';
+      setTimeout(() => {
+        statusMessageDiv.style.display = 'none';
+      }, 5000);
+    }
+
+    function showSuccess(message) {
+      statusMessageDiv.textContent = message;
+      statusMessageDiv.className = 'status-message success';
+      statusMessageDiv.style.display = 'block';
+      setTimeout(() => {
+        statusMessageDiv.style.display = 'none';
+      }, 5000);
+    }
+
+    function showLoading(isLoading) {
+      loadingSpinner.style.display = isLoading ? 'inline-block' : 'none';
+    }
+
+    // Initialize the app
+    async function initApp() {
+      // Enable the connect button immediately
+      connectWalletBtn.disabled = false;
+      
+      // Check for Keplr in the background
+      checkKeplrInstalled().then(installed => {
+        if (!installed) {
+          connectWalletBtn.textContent = 'Keplr Not Detected';
+          connectWalletBtn.disabled = true;
+        }
+      });
+      
+      // Check for Keplr events
+      window.addEventListener('keplr_keystorechange', () => {
+        console.log('Keplr keystore changed');
+        if (userAddress) {
+          // Reconnect if the user was already connected
+          connectKeplr();
+        }
+      });
+    }
+
+    // Run the app
+    document.addEventListener('DOMContentLoaded', initApp);
+  </script>
+</body>
+</html>

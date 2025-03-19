@@ -1,0 +1,24 @@
+{
+  "name": "persistence-cw20-transfer",
+  "version": "1.0.0",
+  "description": "A web app for transferring CW20 tokens on Persistence chain",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "watch": "vite --watch"
+  },
+  "keywords": ["persistence", "cosmos", "cw20", "keplr"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@cosmjs/cosmwasm-stargate": "^0.31.1",
+    "@cosmjs/proto-signing": "^0.31.1",
+    "@cosmjs/stargate": "^0.31.1",
+    "bignumber.js": "^9.1.2"
+  },
+  "devDependencies": {
+    "vite": "^4.5.0"
+  }
+}

@@ -365,7 +365,7 @@ function updateTransferButton() {
 function validateRecipientAddress() {
   const recipientAddressInput = document.getElementById('recipient-address');
   const address = recipientAddressInput.value.trim();
-  const isValid = address.startsWith('persistence1') && address.length >= 39 && address.length <= 65;
+  const isValid = address.startsWith('persistence1') && address.length >= 39 && address.length <= 80;
   
   if (address && !isValid) {
     recipientAddressInput.style.borderColor = 'red';

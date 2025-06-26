@@ -23,7 +23,7 @@ const CW20_TOKENS = [
   {
     address: 'persistence1l26l2qrvvf0mc4mrt3gpzunql6t2cp8jx52x0c4hu6hrlccw6l5sc2plfh',
     name: 'PSTAKE-XPRT LP',
-    symbol: 'ATOM-XPRT LP'
+    symbol: 'PSTAKE-XPRT LP'
   }
 ];
 
